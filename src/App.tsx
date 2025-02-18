@@ -9,6 +9,7 @@ import { wrap, proxy, releaseProxy, ProxyMethods, Remote } from "comlink";
 import { mandelbrotWorker, type MandelbrotWorker } from "./worker";
 import DigitalClock from "./DigitalClock.tsx";
 import { AppRuntimeType } from "./AppRuntimeType.ts";
+import ReactGithubCorner from "react-github-corner";
 
 // Mandelbrot パラメータ
 const MANDELBROT_PARAMS = {
@@ -226,6 +227,7 @@ function App() {
 
   return (
     <div style={{ alignItems: "center", textAlign: "center" }}>
+      <ReactGithubCorner href="https://github.com/kubohiroya/benchmark-webworker-wasm-webgpu"/>
       <DigitalClock />
       <div style={{ display: "flex", gap: "20px", padding: "5px" }}>
         {[
