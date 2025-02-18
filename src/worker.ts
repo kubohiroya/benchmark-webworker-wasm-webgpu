@@ -196,10 +196,11 @@ export const mandelbrotService: MandelbrotService = {
             minY,
             maxY,
           );
-          // WASM 側から、一行分だけをコピーした配列のビューを作成する
-          const rowData = new Uint8ClampedArray(wasm.memory.buffer, rowPtr, rowSize);
-          // これは WASM 側のメモリを参照した配列のビューなので、所有権移転をせずにそのままを渡す。Workerの場合はコピー渡しになる。
-          onPartialRow(workerId, row, rowData);
+          // WASM 側から、一行分だけをコピーした配列のビューを作成し、これをコピーする
+          const rowData = new Uint8ClampedArray(wasm.memory.buffer, rowPtr, rowSize).slice();
+          // これは WASM 側のメモリを参照した配列のビューなので、コピーしたものを所有権移転する。
+          //onPartialRow(workerId, row, rowData);
+          onPartialRow(workerId, row, transfer(rowData, [rowData.buffer]));
           break;
         }
         default:
