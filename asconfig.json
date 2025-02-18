@@ -1,0 +1,24 @@
+{
+  "entries": ["./src/as/assembly/index.ts"],
+  "options": {
+    "optimize": "speed",
+    "optimizeLevel": 3,
+    "noAssert": true,
+    "bindings": "esm",
+    "enable": [],
+    "runtime": "stub",
+    "exportRuntime": true
+  },
+  "targets": {
+    "release": {
+      "optimize": true,
+      "outFile": "./build/benchmark-webworker-wasm-webgpu/assets/index.wasm",
+      "textFile": "./build/benchmark-webworker-wasm-webgpu/assets/index.wat"
+    },
+    "debug": {
+      "debug": true,
+      "outFile": "./build/benchmark-webworker-wasm-webgpu/assets.debug/index.wasm",
+      "textFile": "./build/benchmark-webworker-wasm-webgpu/assets/index.wat"
+    }
+  }
+}
