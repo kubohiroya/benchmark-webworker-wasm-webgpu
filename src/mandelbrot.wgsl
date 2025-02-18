@@ -16,7 +16,7 @@ struct Uniforms {
 @group(0) @binding(1) var<storage,read_write> output: array<u32>;
 
 // ワークグループを (16,16) と仮定
-@compute @workgroup_size(16, 16)
+@compute @workgroup_size(8, 8)
 fn main(@builtin(global_invocation_id) globalId : vec3<u32>) {
     let x = globalId.x;
     let y = globalId.y;

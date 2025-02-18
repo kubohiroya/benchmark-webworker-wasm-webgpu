@@ -97,8 +97,8 @@ export async function generateMandelbrotGPU(
   passEncoder.setPipeline(pipeline);
   passEncoder.setBindGroup(0, bindGroup);
   passEncoder.dispatchWorkgroups(
-    Math.ceil(canvasWidth / 16),
-    Math.ceil(canvasHeight / 16),
+    Math.ceil(canvasWidth / 8),
+    Math.ceil(canvasHeight / 8),
     1,
   );
   passEncoder.end();
@@ -115,7 +115,7 @@ export async function generateMandelbrotGPU(
 
   await device.queue.onSubmittedWorkDone();
   await readBuffer.mapAsync(GPUMapMode.READ);
-  const data = new Uint8ClampedArray(readBuffer.getMappedRange().slice());
+  const data = new Uint8ClampedArray(readBuffer.getMappedRange().slice(0, outputBufferSize));
   readBuffer.unmap();
   return data;
 }

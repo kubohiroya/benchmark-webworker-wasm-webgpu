@@ -4,29 +4,29 @@ import { expose, transfer, finalizer } from "comlink";
 import { AppRuntimeType } from "./AppRuntimeType.ts";
 import { initWebGPU, generateMandelbrotGPU } from "./webgpu";
 
-type MandelbrotProps = {
+type GenerateMandelbrotParams = {
   width: number;
   height: number;
-  maxIteration: number;
+  maxIterations: number;
   minX: number;
   maxX: number;
   minY: number;
   maxY: number;
 };
 
-export type MandelbrotWorker = {
-  generateWholeMandelbrot(
+export type MandelbrotService = {
+  generateMandelbrotSingle(
     workerId: number,
     runtime: AppRuntimeType,
-    params: MandelbrotProps,
+    params: GenerateMandelbrotParams,
     onFullImage: (workerId: number, image: Uint8ClampedArray) => void,
     onFinish: () => void,
   ): void;
 
-  generatePartialMandelbrot(
+  generateMandelbrotLineByLine(
     workerId: number,
     runtime: AppRuntimeType,
-    params: MandelbrotProps,
+    params: GenerateMandelbrotParams,
     onPartialRow: (
       workerId: number,
       row: number,
@@ -43,7 +43,7 @@ export type MandelbrotWorker = {
 /**
  * Worker 内で呼び出される関数を Comlink で公開する
  */
-export const mandelbrotWorker: MandelbrotWorker = {
+export const mandelbrotService: MandelbrotService = {
   /**
    * マンデルブロ計算を実行する
    * @param {number} workerId
@@ -56,35 +56,27 @@ export const mandelbrotWorker: MandelbrotWorker = {
    *   - 計算が終了したときに呼び出されるコールバック（メインスレッド側）
    * @returns {Promise<void>}
    */
-  async generateWholeMandelbrot(
+  async generateMandelbrotSingle(
     workerId: number,
     runtime: AppRuntimeType,
-    params: {
-      width: number;
-      height: number;
-      maxIteration: number;
-      minX: number;
-      maxX: number;
-      minY: number;
-      maxY: number;
-    },
+    params: GenerateMandelbrotParams,
     onFullImage: (workerId: number, image: Uint8ClampedArray) => void,
     onFinish: () => void,
   ): Promise<void> {
-    const { width, height, maxIteration, minX, maxX, minY, maxY } = params;
+    const { width, height, maxIterations, minX, maxX, minY, maxY } = params;
     this.hasCanceled = false;
     // 2) 画像バッファの初期化
     switch (runtime) {
-      case AppRuntimeType.JS_WHOLE: {
+      case AppRuntimeType.JS_SINGLE: {
         js.initCanvas(width, height);
-        js.calculate(maxIteration, minX, maxX, minY, maxY);
+        js.calculate(maxIterations, minX, maxX, minY, maxY);
         // ここではシンプルにコピーしたものを渡す。
         onFullImage(workerId, js.imageData);
         break;
       }
-      case AppRuntimeType.WASM_WHOLE: {
+      case AppRuntimeType.WASM_SINGLE: {
         wasm.initCanvas(width, height);
-        const ptr = wasm.calculate(maxIteration, minX, maxX, minY, maxY);
+        const ptr = wasm.calculate(maxIterations, minX, maxX, minY, maxY);
         // WASM 側から、画像全体をコピーした配列のビューを作成する
         const imageData = new Uint8ClampedArray(
           wasm.memory.buffer,
@@ -95,10 +87,10 @@ export const mandelbrotWorker: MandelbrotWorker = {
         onFullImage(workerId, imageData);
         break;
       }
-      case AppRuntimeType.WEBGPU_WHOLE: {
+      case AppRuntimeType.WEBGPU_SINGLE: {
         await initWebGPU(width, height);
         const data = await generateMandelbrotGPU(
-          maxIteration,
+          maxIterations,
           minX,
           maxX,
           minY,
@@ -127,18 +119,10 @@ export const mandelbrotWorker: MandelbrotWorker = {
    *   - 計算がキャンセルされたときに呼び出されるコールバック（メインスレッド側）
    * @returns {Promise<void>}
    */
-  async generatePartialMandelbrot(
+  async generateMandelbrotLineByLine(
     workerId: number,
     runtime: AppRuntimeType,
-    params: {
-      width: number;
-      height: number;
-      maxIteration: number;
-      minX: number;
-      maxX: number;
-      minY: number;
-      maxY: number;
-    },
+    params: GenerateMandelbrotParams,
     onPartialRow: (
       workerId: number,
       row: number,
@@ -147,21 +131,18 @@ export const mandelbrotWorker: MandelbrotWorker = {
     onFinish: () => void,
     onCancel: () => void,
   ): Promise<void> {
-    const { width, height, maxIteration, minX, maxX, minY, maxY } = params;
+    const { width, height, maxIterations, minX, maxX, minY, maxY } = params;
 
-    // JS 側メモリ参照
-    const memory = wasm.memory;
     this.hasCanceled = false;
 
-    // 2) 画像バッファの初期化
     switch (runtime) {
-      case AppRuntimeType.JS:
-      case AppRuntimeType.JS_TIMEOUT:
+      case AppRuntimeType.JS_MULTI:
+      case AppRuntimeType.JS_MULTI_CANCELLABLE:
       case AppRuntimeType.JS_WORKER:
         js.initCanvas(width, height);
         break;
-      case AppRuntimeType.WASM:
-      case AppRuntimeType.WASM_TIMEOUT:
+      case AppRuntimeType.WASM_MULTI:
+      case AppRuntimeType.WASM_MULTI_CANCELLABLE:
       case AppRuntimeType.WASM_WORKER:
         wasm.initCanvas(width, height);
         break;
@@ -173,9 +154,9 @@ export const mandelbrotWorker: MandelbrotWorker = {
     const rowSize = width * 4; // RGBA * width
     for (let row = 0; row < height; row++) {
       switch (runtime) {
-        case AppRuntimeType.JS_TIMEOUT:
+        case AppRuntimeType.JS_MULTI_CANCELLABLE:
         case AppRuntimeType.JS_WORKER:
-        case AppRuntimeType.WASM_TIMEOUT:
+        case AppRuntimeType.WASM_MULTI_CANCELLABLE:
         case AppRuntimeType.WASM_WORKER:
           if (this.hasCanceled) {
             // 実際には、this.hasCanceledの変更を検出できるのは、*_TIMEOUTの場合のみ
@@ -186,10 +167,10 @@ export const mandelbrotWorker: MandelbrotWorker = {
 
       // 行を計算
       switch (runtime) {
-        case AppRuntimeType.JS:
-        case AppRuntimeType.JS_TIMEOUT:
+        case AppRuntimeType.JS_MULTI:
+        case AppRuntimeType.JS_MULTI_CANCELLABLE:
         case AppRuntimeType.JS_WORKER: {
-          js.calculateRow(row, maxIteration, minX, maxX, minY, maxY);
+          js.calculateRow(row, maxIterations, minX, maxX, minY, maxY);
           // 一行分だけをコピーした配列を作成する
           const rowData = js.imageData.slice(
             row * rowSize,
@@ -204,19 +185,19 @@ export const mandelbrotWorker: MandelbrotWorker = {
           }
           break;
         }
-        case AppRuntimeType.WASM:
-        case AppRuntimeType.WASM_TIMEOUT:
+        case AppRuntimeType.WASM_MULTI:
+        case AppRuntimeType.WASM_MULTI_CANCELLABLE:
         case AppRuntimeType.WASM_WORKER: {
           const rowPtr = wasm.calculateRow(
             row,
-            maxIteration,
+            maxIterations,
             minX,
             maxX,
             minY,
             maxY,
           );
           // WASM 側から、一行分だけをコピーした配列のビューを作成する
-          const rowData = new Uint8ClampedArray(memory.buffer, rowPtr, rowSize);
+          const rowData = new Uint8ClampedArray(wasm.memory.buffer, rowPtr, rowSize);
           // これは WASM 側のメモリを参照した配列のビューなので、所有権移転をせずにそのままを渡す。Workerの場合はコピー渡しになる。
           onPartialRow(workerId, row, rowData);
           break;
@@ -227,8 +208,8 @@ export const mandelbrotWorker: MandelbrotWorker = {
 
       // *_TIMEOUTでは、UI ブロックを避けるために、setTimeout を入れる。
       switch (runtime) {
-        case AppRuntimeType.JS_TIMEOUT:
-        case AppRuntimeType.WASM_TIMEOUT:
+        case AppRuntimeType.JS_MULTI_CANCELLABLE:
+        case AppRuntimeType.WASM_MULTI_CANCELLABLE:
           await new Promise((resolve) => setTimeout(resolve, 0));
       }
     }
@@ -251,4 +232,4 @@ export const mandelbrotWorker: MandelbrotWorker = {
 };
 
 // Comlink で公開
-expose(mandelbrotWorker);
+expose(mandelbrotService);
