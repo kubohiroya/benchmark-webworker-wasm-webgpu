@@ -27,6 +27,62 @@ enum AppState {
   RUNNING,
 }
 
+const RuntimeSelector = ({
+                           items,
+                           isRunning,
+                           appRuntime,
+                           setAppRuntime,
+  elapsedTimeMap
+}: {
+  items: Array<AppRuntimeType>,
+  isRunning: boolean,
+  appRuntime: AppRuntimeType,
+  setAppRuntime: (appRuntime: AppRuntimeType)=> void,
+  elapsedTimeMap: {[key:string]:number}
+}) => {
+    return items.map((item, index) => {
+      return (
+        item != null ?
+          <td key={index}
+              style={{
+                backgroundColor:
+                  item === AppRuntimeType.WEBGPU_SINGLE &&
+                  navigator.gpu === undefined
+                    ? "lightgrey"
+                    : item === AppRuntimeType.JS_SINGLE ||
+                    item === AppRuntimeType.WASM_SINGLE ||
+                    item === AppRuntimeType.JS_MULTI ||
+                    item === AppRuntimeType.WASM_MULTI
+                      ? "#eaa"
+                      : "#aea",
+              }}
+          >
+            <input
+              defaultChecked={appRuntime === item}
+              disabled={
+                isRunning ||
+                (item === AppRuntimeType.WEBGPU_SINGLE &&
+                  navigator.gpu === undefined)
+              }
+              type="radio"
+              name="runtime"
+              id={`${item}`}
+              value={item}
+              onClick={() => setAppRuntime(item)}
+            />
+            <label
+              htmlFor={`${item}`}
+              style={{paddingRight: '4px'}}
+            >
+              {elapsedTimeMap[item] !== undefined ? elapsedTimeMap[item]!.toFixed(0)+" msec" : "----------"}
+            </label>
+          </td>
+          :
+          <td key={index}></td>
+      );
+    });
+  }
+
 function App() {
   const contextRef = useRef<CanvasRenderingContext2D | null>(null);
 
@@ -80,7 +136,7 @@ function App() {
 
     const startTime = performance.now();
 
-    function onPartialRowData(
+    function onRowImageData(
       workerId: number,
       row: number,
       rowData: Uint8ClampedArray,
@@ -104,7 +160,7 @@ function App() {
       });
     }
 
-    function onWholeData(workerId: number, image: Uint8ClampedArray): void {
+    function onImageData(workerId: number, image: Uint8ClampedArray): void {
       // ユーザによるキャンセルのためにworkerが作り直された場合には、過去のworkerからのコールバックは無視する。
       // そのため、最新のworkerIdとの一致を確認する。
       if (workerIdRef.current !== workerId) {
@@ -133,7 +189,7 @@ function App() {
           workerIdRef.current,
           appRuntime,
           { ...MANDELBROT_PARAMS, maxIterations },
-          onWholeData,
+          onImageData,
           onFinish,
         );
         break;
@@ -147,7 +203,7 @@ function App() {
           appRuntime,
           { ...MANDELBROT_PARAMS, maxIterations },
           // コールバックを Comlink.proxy で包まずに、そのまま渡す
-          onPartialRowData,
+          onRowImageData,
           onFinish,
           onCancel,
         );
@@ -160,7 +216,7 @@ function App() {
           appRuntime,
           { ...MANDELBROT_PARAMS, maxIterations },
           // コールバックを Comlink.proxy で包んだものを渡す
-          proxy(onPartialRowData),
+          proxy(onRowImageData),
           proxy(onFinish),
           proxy(onCancel),
         );
@@ -234,54 +290,6 @@ function App() {
 
   const isRunning = appState == AppState.RUNNING;
 
-  const runtimeSelector = useCallback(items=>{
-     return items.map((item, index) => {
-      return (
-        item != null ?
-          <td key={index}
-              style={{
-                backgroundColor:
-                  item === AppRuntimeType.WEBGPU_SINGLE &&
-                  navigator.gpu === undefined
-                    ? "lightgrey"
-                    : item === AppRuntimeType.JS_SINGLE ||
-                    item === AppRuntimeType.WASM_SINGLE ||
-                    item === AppRuntimeType.JS_MULTI ||
-                    item === AppRuntimeType.WASM_MULTI
-                      ? "#eaa"
-                      : "#aea",
-              }}
-          >
-            <input
-              defaultChecked={appRuntime === item}
-              disabled={
-                isRunning ||
-                (item === AppRuntimeType.WEBGPU_SINGLE &&
-                  navigator.gpu === undefined)
-              }
-              type="radio"
-              name="runtime"
-              id={`${item}`}
-              value={item}
-              onClick={() => setAppRuntime(item)}
-            />
-            <label
-              htmlFor={`${item}`}
-              style={{paddingRight: '4px'}}
-            >
-              {elapsedTimeMap[item] !== undefined ? elapsedTimeMap[item]!.toFixed(0)+" msec" : "----------"}
-            </label>
-          </td>
-          :
-          <td key={index}></td>
-      );
-    });
-  }, [
-    appRuntime,
-    isRunning,
-    elapsedTimeMap,
-  ]);
-
   return (
     <div style={{ alignItems: "center", textAlign: "center" }}>
       <ReactGithubCorner href="https://github.com/kubohiroya/benchmark-webworker-wasm-webgpu"/>
@@ -317,7 +325,7 @@ function App() {
                 key={index}
               >
                 <th>{['JavaScript', 'Wasm'][index]}</th>
-                {runtimeSelector(items)}
+                <RuntimeSelector {...{items, isRunning, appRuntime, setAppRuntime, elapsedTimeMap}} />
               </tr>
             );
           })}
@@ -348,7 +356,7 @@ function App() {
                 key={index}
               >
                 <th>{['WebGPU'][index]}</th>
-                {runtimeSelector(items)}
+                <RuntimeSelector {...{items, isRunning, appRuntime, setAppRuntime, elapsedTimeMap}} />
               </tr>
             );
           })}
