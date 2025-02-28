@@ -2,14 +2,17 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
-import { wrap, proxy, releaseProxy, ProxyMethods, Remote } from "comlink";
-import { mandelbrotService, type MandelbrotService } from "./worker";
+import { wrap, releaseProxy, ProxyMethods, Remote, proxy} from "comlink";
+import {MandelbrotService} from "./MandelbrotService";
+
 import DigitalClock from "./DigitalClock.tsx";
-import { AppRuntimeType } from "./AppRuntimeType.ts";
 import ReactGithubCorner from "react-github-corner";
+import { AppTypeNames } from "./AppTypeNames.ts";
+import { AppTypes, CancellableType, ThreadType } from "./AppType.ts";
 
 // Mandelbrot パラメータ
 const MANDELBROT_PARAMS = {
@@ -27,82 +30,92 @@ enum AppState {
   RUNNING,
 }
 
-const RuntimeSelector = ({
-                           items,
-                           isRunning,
-                           appRuntime,
-                           setAppRuntime,
-  elapsedTimeMap
+const AppSelector = ({
+  appTypeNames,
+  isRunning,
+  appTypeName: currentAppTypeName,
+                       handleAppTypeNameChange,
+  elapsedTimeMap,
 }: {
-  items: Array<AppRuntimeType>,
-  isRunning: boolean,
-  appRuntime: AppRuntimeType,
-  setAppRuntime: (appRuntime: AppRuntimeType)=> void,
-  elapsedTimeMap: {[key:string]:number}
+  appTypeNames: Array<AppTypeNames>;
+  isRunning: boolean;
+  appTypeName: AppTypeNames;
+  handleAppTypeNameChange: (appTypeName: AppTypeNames) => void;
+  elapsedTimeMap: Record<string,number>;
 }) => {
-    return items.map((item, index) => {
-      return (
-        item != null ?
-          <td key={index}
-              style={{
-                backgroundColor:
-                  item === AppRuntimeType.WEBGPU_SINGLE &&
-                  navigator.gpu === undefined
-                    ? "lightgrey"
-                    : item === AppRuntimeType.JS_SINGLE ||
-                    item === AppRuntimeType.WASM_SINGLE ||
-                    item === AppRuntimeType.JS_MULTI ||
-                    item === AppRuntimeType.WASM_MULTI
-                      ? "#eaa"
-                      : "#aea",
-              }}
-          >
-            <input
-              defaultChecked={appRuntime === item}
-              disabled={
-                isRunning ||
-                (item === AppRuntimeType.WEBGPU_SINGLE &&
-                  navigator.gpu === undefined)
-              }
-              type="radio"
-              name="runtime"
-              id={`${item}`}
-              value={item}
-              onClick={() => setAppRuntime(item)}
-            />
-            <label
-              htmlFor={`${item}`}
-              style={{paddingRight: '4px'}}
-            >
-              {elapsedTimeMap[item] !== undefined ? elapsedTimeMap[item]!.toFixed(0)+" msec" : "----------"}
-            </label>
-          </td>
-          :
-          <td key={index}></td>
-      );
-    });
-  }
+  return appTypeNames.map((appTypeName, index) => {
+    return appTypeName != null ? (
+      <td
+        key={index}
+        style={{
+          backgroundColor:
+            appTypeName === AppTypeNames.WEBGPU_SINGLE &&
+            navigator.gpu === undefined
+              ? "lightgrey"
+              : appTypeName === AppTypeNames.JS_SINGLE ||
+                  appTypeName === AppTypeNames.WASM_SINGLE ||
+                  appTypeName === AppTypeNames.JS_MULTI ||
+                  appTypeName === AppTypeNames.WASM_MULTI
+                ? "#eaa"
+                : "#aea",
+        }}
+      >
+        <input
+          defaultChecked={appTypeName === currentAppTypeName}
+          disabled={
+            isRunning ||
+            (appTypeName === AppTypeNames.WEBGPU_SINGLE &&
+              navigator.gpu === undefined)
+          }
+          type="radio"
+          name="app"
+          id={`${appTypeName}`}
+          value={appTypeName}
+          onClick={() => handleAppTypeNameChange(appTypeName)}
+        />
+        <label htmlFor={`${appTypeName}`} style={{ paddingRight: "4px" }}>
+          {elapsedTimeMap[appTypeName] !== undefined
+            ? elapsedTimeMap[appTypeName]!.toFixed(0) + " msec"
+            : "------------"}
+        </label>
+      </td>
+    ) : (
+      <td key={index}></td>
+    );
+  });
+};
 
 function App() {
-  const contextRef = useRef<CanvasRenderingContext2D | null>(null);
+
+  const serviceRef = useRef<MandelbrotService>(new MandelbrotService());
 
   const workerIdRef = useRef<number>(0);
   const workerRef = useRef<Worker | null>(null);
   const comlinkWorkerRef = useRef<Remote<
     MandelbrotService & ProxyMethods
   > | null>(null);
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
-  const [appRuntime, setAppRuntime] = useState<AppRuntimeType>(
-    AppRuntimeType.JS_SINGLE,
+  const [appTypeName, setAppTypeName] = useState<AppTypeNames>(
+    AppTypeNames.JS_SINGLE,
   );
+  const handleAppTypeNameChange = useCallback((appTypeName: AppTypeNames) => {
+    setAppTypeName(appTypeName);
+  }, []);
+
+  const appType = useMemo(() => AppTypes[appTypeName], [appTypeName]);
+
   const [maxIterations, setMaxIterations] = useState(
     MANDELBROT_PARAMS.maxIterations,
   );
   const [progress, setProgress] = useState(-1);
   const [elapsedTime, setElapsedTime] = useState(-1);
-  const [elapsedTimeMap, setElapsedTimeMap] = useState<{[key:string]:number}>({});
+  const [elapsedTimeMap, setElapsedTimeMap] = useState<Record<string, number>>(
+    {},
+  );
   const [appState, setAppState] = useState<AppState>(AppState.STOPPED);
+
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const contextRef = useRef<CanvasRenderingContext2D | null>(null);
 
   const initWorker = useCallback(() => {
     workerIdRef.current++;
@@ -115,7 +128,7 @@ function App() {
 
   useEffect(() => {
     initWorker();
-  }, [initWorker]);
+  }, []);
 
   useLayoutEffect(() => {
     contextRef.current = canvasRef.current?.getContext("2d") ?? null;
@@ -123,7 +136,7 @@ function App() {
 
   const onFinish = useCallback(() => {
     setAppState(AppState.STOPPED);
-  }, [appRuntime, maxIterations, elapsedTime, elapsedTimeMap]);
+  }, []);
 
   const onCancel = useCallback(() => {
     setAppState(AppState.STOPPED);
@@ -131,15 +144,12 @@ function App() {
   }, []);
 
   const generateMandelbrot = useCallback(() => {
-    setProgress(0);
-    setAppState(AppState.RUNNING);
 
-    const startTime = performance.now();
-
-    function onRowImageData(
+    function onRowImage  (
       workerId: number,
-      row: number,
-      rowData: Uint8ClampedArray,
+      startTime: number,
+      rowIndex: number,
+      rowImage: Uint8ClampedArray,
     ): void {
       // ユーザによるキャンセルのためにworkerが作り直された場合には、過去のworkerからのコールバックは無視する。
       // そのため、最新のworkerIdとの一致を確認する。
@@ -148,19 +158,19 @@ function App() {
         return;
       }
       const newElapsedTime = performance.now() - startTime;
-      setElapsedTime(newElapsedTime );
-      setElapsedTimeMap({...elapsedTimeMap, [appRuntime]:newElapsedTime});
+      setElapsedTime(newElapsedTime);
+      setElapsedTimeMap({ ...elapsedTimeMap, [appTypeName]: newElapsedTime });
 
-      setProgress(row);
+      setProgress(rowIndex);
       requestAnimationFrame(() => {
         // rowData は row1行分の RGBA (Uint8ClampedArray)、ImageDataに変換
-        const imageData = new ImageData(rowData, MANDELBROT_PARAMS.width, 1);
+        const imageData = new ImageData(rowImage, MANDELBROT_PARAMS.width, 1);
         // 該当行(y位置は row)に描画
-        contextRef.current?.putImageData(imageData, 0, row);
+        contextRef.current?.putImageData(imageData, 0, rowIndex);
       });
-    }
+    };
 
-    function onImageData(workerId: number, image: Uint8ClampedArray): void {
+    function onFullImage (workerId: number, startTime: number, fullImage: Uint8ClampedArray): void {
       // ユーザによるキャンセルのためにworkerが作り直された場合には、過去のworkerからのコールバックは無視する。
       // そのため、最新のworkerIdとの一致を確認する。
       if (workerIdRef.current !== workerId) {
@@ -168,86 +178,59 @@ function App() {
         return;
       }
       const newElapsedTime = performance.now() - startTime;
-      setElapsedTime(newElapsedTime );
-      setElapsedTimeMap({...elapsedTimeMap, [appRuntime]:newElapsedTime});
+      setElapsedTime(newElapsedTime);
+      setElapsedTimeMap({ ...elapsedTimeMap, [appTypeName]: newElapsedTime });
       setProgress(MANDELBROT_PARAMS.height - 1);
       requestAnimationFrame(() => {
         const imageData = new ImageData(
-          image,
+          fullImage,
           MANDELBROT_PARAMS.width,
           MANDELBROT_PARAMS.height,
         );
         contextRef.current?.putImageData(imageData, 0, 0);
       });
-    }
+    };
 
-    switch (appRuntime) {
-      case AppRuntimeType.JS_SINGLE:
-      case AppRuntimeType.WASM_SINGLE:
-      case AppRuntimeType.WEBGPU_SINGLE: {
-        mandelbrotService.generateMandelbrotSingle(
-          workerIdRef.current,
-          appRuntime,
-          { ...MANDELBROT_PARAMS, maxIterations },
-          onImageData,
-          onFinish,
-        );
-        break;
-      }
-      case AppRuntimeType.JS_MULTI:
-      case AppRuntimeType.WASM_MULTI:
-      case AppRuntimeType.JS_MULTI_CANCELLABLE:
-      case AppRuntimeType.WASM_MULTI_CANCELLABLE: {
-        mandelbrotService.generateMandelbrotLineByLine(
-          workerIdRef.current,
-          appRuntime,
-          { ...MANDELBROT_PARAMS, maxIterations },
-          // コールバックを Comlink.proxy で包まずに、そのまま渡す
-          onRowImageData,
-          onFinish,
-          onCancel,
-        );
-        break;
-      }
-      case AppRuntimeType.JS_WORKER:
-      case AppRuntimeType.WASM_WORKER:
-        comlinkWorkerRef.current?.generateMandelbrotLineByLine(
-          workerIdRef.current,
-          appRuntime,
-          { ...MANDELBROT_PARAMS, maxIterations },
-          // コールバックを Comlink.proxy で包んだものを渡す
-          proxy(onRowImageData),
-          proxy(onFinish),
-          proxy(onCancel),
-        );
-        break;
-      default:
-        throw new Error(`unknown runtime: ${appRuntime}`);
+    setProgress(0);
+    setAppState(AppState.RUNNING);
+
+    if (appType.threadType === ThreadType.Worker) {
+      comlinkWorkerRef.current?.generateMandelbrot(
+        workerIdRef.current,
+        performance.now(),
+        appType,
+        { ...MANDELBROT_PARAMS, maxIterations },
+        // コールバックを Comlink.proxy で包んだものを渡す
+        proxy(onFinish),
+        proxy(onCancel),
+        proxy(onFullImage),
+        proxy(onRowImage),
+      );
+    } else {
+      serviceRef.current.generateMandelbrot(
+        workerIdRef.current,
+        performance.now(),
+        appType,
+        { ...MANDELBROT_PARAMS, maxIterations },
+        onFinish,
+        onCancel,
+        onFullImage,
+        onRowImage
+      );
     }
-  }, [appRuntime, maxIterations, onFinish, onCancel]);
+  }, [appType, appTypeName, maxIterations, onFinish, onCancel]);
 
   const cancel = useCallback(() => {
-    switch (appRuntime) {
-      case AppRuntimeType.JS_MULTI:
-      case AppRuntimeType.WASM_MULTI:
-      case AppRuntimeType.JS_MULTI_CANCELLABLE:
-      case AppRuntimeType.WASM_MULTI_CANCELLABLE:
-        mandelbrotService.cancel();
-        break;
-      case AppRuntimeType.JS_WORKER:
-      case AppRuntimeType.WASM_WORKER:
-        comlinkWorkerRef.current?.cancel();
-        comlinkWorkerRef.current?.[releaseProxy]();
-        workerRef.current?.terminate();
-        initWorker();
-        break;
-      case AppRuntimeType.WEBGPU_SINGLE:
-        break;
-      default:
-        throw new Error(`unknown runtime: ${appRuntime}`);
+    if (appType.threadType === ThreadType.Worker) {
+      comlinkWorkerRef.current?.cancel();
+      comlinkWorkerRef.current?.[releaseProxy]();
+      workerRef.current?.terminate();
+      initWorker();
+    } else if (appType.cancellableType === CancellableType.Cancellable) {
+      serviceRef.current.cancel();
     }
     setAppState(AppState.STOPPED);
-  }, [appRuntime, initWorker]);
+  }, [appType, initWorker]);
 
   const clearBackground = useCallback(() => {
     if (contextRef.current) {
@@ -292,80 +275,115 @@ function App() {
 
   return (
     <div style={{ alignItems: "center", textAlign: "center" }}>
-      <ReactGithubCorner href="https://github.com/kubohiroya/benchmark-webworker-wasm-webgpu"/>
+      <ReactGithubCorner href="https://github.com/kubohiroya/benchmark-webworker-wasm-webgpu" />
       <DigitalClock />
-      <div style={{ display: "flex", justifyContent: "center", gap: "20px", padding: "5px" }}>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "center",
+          gap: "20px",
+          padding: "5px",
+        }}
+      >
         <table border={1}>
           <thead>
-          <tr>
-            <th rowSpan={4}></th>
-            <th colSpan={1}>Single-pass</th>
-            <th colSpan={3}>Line-by-line</th>
-          </tr>
-          <tr>
-            <th colSpan={3}>UI Thread</th>
-            <th colSpan={1}>Worker Thread</th>
-          </tr>
-          <tr>
-            <th colSpan={2}>Blocking</th>
-            <th colSpan={2}>Non-blocking</th>
-          </tr>
-          <tr>
-            <th colSpan={2}>Non-Cancellable</th>
-            <th colSpan={2}>Cancellable</th>
-          </tr>
+            <tr>
+              <th rowSpan={4}></th>
+              <th colSpan={1}>Single-pass</th>
+              <th colSpan={3}>Line-by-line</th>
+            </tr>
+            <tr>
+              <th colSpan={3}>UI Thread</th>
+              <th colSpan={1}>Worker Thread</th>
+            </tr>
+            <tr>
+              <th colSpan={2}>Blocking</th>
+              <th colSpan={2}>Non-blocking</th>
+            </tr>
+            <tr>
+              <th colSpan={2}>Non-Cancellable</th>
+              <th colSpan={2}>Cancellable</th>
+            </tr>
           </thead>
           <tbody>
-          {[
-            [AppRuntimeType.JS_SINGLE,AppRuntimeType.JS_MULTI,AppRuntimeType.JS_MULTI_CANCELLABLE,AppRuntimeType.JS_WORKER],
-            [ AppRuntimeType.WASM_SINGLE, AppRuntimeType.WASM_MULTI, AppRuntimeType.WASM_MULTI_CANCELLABLE, AppRuntimeType.WASM_WORKER],
-          ].map((items, index) => {
-            return (
-              <tr
-                key={index}
-              >
-                <th>{['JavaScript', 'Wasm'][index]}</th>
-                <RuntimeSelector {...{items, isRunning, appRuntime, setAppRuntime, elapsedTimeMap}} />
-              </tr>
-            );
-          })}
+            {[
+              [
+                AppTypeNames.JS_SINGLE,
+                AppTypeNames.JS_MULTI,
+                AppTypeNames.JS_MULTI_CANCELLABLE,
+                AppTypeNames.JS_WORKER,
+              ],
+              [
+                AppTypeNames.WASM_SINGLE,
+                AppTypeNames.WASM_MULTI,
+                AppTypeNames.WASM_MULTI_CANCELLABLE,
+                AppTypeNames.WASM_WORKER,
+              ],
+            ].map((appTypeNames, index) => {
+              return (
+                <tr key={index}>
+                  <th>{["JavaScript", "Wasm"][index]}</th>
+                  <AppSelector
+                    {...{
+                      appTypeNames,
+                      isRunning,
+                      appTypeName,
+                      handleAppTypeNameChange,
+                      elapsedTimeMap,
+                    }}
+                  />
+                </tr>
+              );
+            })}
           </tbody>
         </table>
         <table border={1}>
           <thead>
-          <tr>
-            <th rowSpan={4}></th>
-            <th colSpan={1}>64 workgroups</th>
-          </tr>
-          <tr>
-            <th colSpan={1}>UI Thread</th>
-          </tr>
-          <tr>
-            <th colSpan={1}>Non-blocking</th>
-          </tr>
-          <tr>
-            <th colSpan={1}>Non-Cancellable</th>
-          </tr>
+            <tr>
+              <th rowSpan={4}></th>
+              <th colSpan={1}>64 workgroups</th>
+            </tr>
+            <tr>
+              <th colSpan={1}>UI Thread</th>
+            </tr>
+            <tr>
+              <th colSpan={1}>Non-blocking</th>
+            </tr>
+            <tr>
+              <th colSpan={1}>Non-Cancellable</th>
+            </tr>
           </thead>
           <tbody>
-          {[
-            [AppRuntimeType.WEBGPU_SINGLE]
-          ].map((items, index) => {
-            return (
-              <tr
-                key={index}
-              >
-                <th>{['WebGPU'][index]}</th>
-                <RuntimeSelector {...{items, isRunning, appRuntime, setAppRuntime, elapsedTimeMap}} />
-              </tr>
-            );
-          })}
+            {[[AppTypeNames.WEBGPU_SINGLE]].map((appTypeNames, index) => {
+              return (
+                <tr key={index}>
+                  <th>{["WebGPU"][index]}</th>
+                  <AppSelector
+                    {...{
+                      appTypeNames,
+                      isRunning,
+                      appTypeName,
+                      handleAppTypeNameChange,
+                      elapsedTimeMap,
+                    }}
+                  />
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
-      <div style={{ display: "flex", justifyContent:'center', alignItems: "center", gap: "20px", padding: "5px" }}>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "center",
+          alignItems: "center",
+          gap: "20px",
+          padding: "5px",
+        }}
+      >
         <label htmlFor="maxIterations">Max iterations:</label>
-          <select
+        <select
           disabled={isRunning}
           name="maxIterations"
           value={maxIterations}
@@ -378,14 +396,21 @@ function App() {
         <button
           disabled={isRunning}
           onClick={start}
-          style={{ marginLeft: '20px', fontSize: "22px" }}
+          style={{ marginLeft: "20px", fontSize: "22px" }}
         >
           START
         </button>
         <button onClick={cancel}>CANCEL</button>
         <button onClick={reset}>RESET</button>
-        <div style={{ width:"25%", display: "flex", paddingLeft: '30px', gap: "20px" }}>
-          <div style={{ alignSelf: 'center' }}>
+        <div
+          style={{
+            width: "25%",
+            display: "flex",
+            paddingLeft: "30px",
+            gap: "20px",
+          }}
+        >
+          <div style={{ alignSelf: "center" }}>
             {progress > 0 && (
               <span>
                 {progress + 1} / {MANDELBROT_PARAMS.height}{" "}

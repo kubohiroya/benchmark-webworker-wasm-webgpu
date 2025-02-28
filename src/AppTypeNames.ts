@@ -1,4 +1,4 @@
-export enum AppRuntimeType {
+export enum AppTypeNames {
   JS_SINGLE = "JavaScript (Single-pass)",
   WASM_SINGLE = "Wasm (Single-pass)",
   WEBGPU_SINGLE = "WebGPU",
